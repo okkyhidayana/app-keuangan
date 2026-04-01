@@ -226,6 +226,8 @@ export interface AmortizationRow {
   interestPayment: number;
   totalPayment: number;
   endingBalance: number;
+  phaseIndex?: number;   // 0 = Fix, 1..N = phase berjenjang, N+1 = Floating cap
+  phaseLabel?: string;   // e.g. "Fix", "Transisi 1 (8%)", "Floating"
 }
 
 export interface KPRResult {

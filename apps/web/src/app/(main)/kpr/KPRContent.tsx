@@ -7,11 +7,28 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, Legend,
 } from 'recharts';
-import { Calculator, Save, X, Bookmark, Loader2, Trash2 } from 'lucide-react';
+import { Calculator, Save, X, Bookmark, Loader2, Trash2, PlusCircle, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 
 const statusColors = { sehat: '#3ecf8e', aman: '#635bff', berat: '#f5a623', bahaya: '#ef4444' };
 const statusLabels = { sehat: '✅ Rasio Sehat', aman: '🟡 Batas Aman', berat: '⚠️ Membebani', bahaya: '🔴 Tidak Sehat' };
+
+// Warna untuk masing-masing fase bunga
+const PHASE_COLORS = [
+  { bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   text: 'text-blue-400',   badge: 'bg-blue-100 text-blue-700',   hex: '#3b82f6' },
+  { bg: 'bg-amber-500/10',  border: 'border-amber-500/20',  text: 'text-amber-400',  badge: 'bg-amber-100 text-amber-700',  hex: '#f59e0b' },
+  { bg: 'bg-purple-500/10', border: 'border-purple-500/20', text: 'text-purple-400', badge: 'bg-purple-100 text-purple-700', hex: '#a855f7' },
+  { bg: 'bg-pink-500/10',   border: 'border-pink-500/20',   text: 'text-pink-400',   badge: 'bg-pink-100 text-pink-700',   hex: '#ec4899' },
+  { bg: 'bg-cyan-500/10',   border: 'border-cyan-500/20',   text: 'text-cyan-400',   badge: 'bg-cyan-100 text-cyan-700',   hex: '#06b6d4' },
+  { bg: 'bg-orange-500/10', border: 'border-orange-500/20', text: 'text-orange-400', badge: 'bg-orange-100 text-orange-700', hex: '#f97316' },
+];
+
+function getPhaseStyling(phaseIndex: number | undefined, totalFloatingPhases: number) {
+  if (phaseIndex === undefined) return PHASE_COLORS[0];
+  if (phaseIndex === 0) return PHASE_COLORS[0]; // fix = biru
+  if (phaseIndex <= totalFloatingPhases) return PHASE_COLORS[phaseIndex]; // transisi
+  return PHASE_COLORS[5]; // floating akhir = oranye
+}
 
 function InfoRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
@@ -20,6 +37,11 @@ function InfoRow({ label, value, highlight }: { label: string; value: string; hi
       <span className={`text-sm font-numeric font-semibold ${highlight ? 'text-primary-500' : 'text-foreground'}`}>{value}</span>
     </div>
   );
+}
+
+interface FloatingPhase {
+  durationYears: number;
+  rateAnnual: number;
 }
 
 export function KPRContent() {
@@ -40,6 +62,12 @@ export function KPRContent() {
     bankFee2: 0,
     bankFee3: 0,
   });
+
+  // State bunga berjenjang
+  const [berjenjang, setBerjenjang] = useState(false);
+  const [floatingPhases, setFloatingPhases] = useState<FloatingPhase[]>([
+    { durationYears: 2, rateAnnual: 0.08 },
+  ]);
 
   const [tab, setTab] = useState<'ringkasan' | 'amortisasi' | 'biaya'>('ringkasan');
   const [showAllRows, setShowAllRows] = useState(false);
@@ -91,6 +119,22 @@ export function KPRContent() {
       bankFee2: Number(sim.bank_fee_2),
       bankFee3: Number(sim.bank_fee_3),
     });
+    // Load bunga berjenjang jika ada
+    if (sim.floating_phases) {
+      try {
+        const phases = JSON.parse(sim.floating_phases);
+        if (Array.isArray(phases) && phases.length > 0) {
+          setBerjenjang(true);
+          setFloatingPhases(phases);
+        } else {
+          setBerjenjang(false);
+        }
+      } catch {
+        setBerjenjang(false);
+      }
+    } else {
+      setBerjenjang(false);
+    }
   };
 
   const saveSimulation = async (e: React.FormEvent) => {
@@ -119,6 +163,7 @@ export function KPRContent() {
         bank_fee_1: form.bankFee1,
         bank_fee_2: form.bankFee2,
         bank_fee_3: form.bankFee3,
+        floating_phases: berjenjang ? JSON.stringify(floatingPhases) : null,
       });
       setShowSaveModal(false);
       setSimName('');
@@ -146,6 +191,25 @@ export function KPRContent() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }, []);
 
+  // Handlers bunga berjenjang
+  const addPhase = () => {
+    if (floatingPhases.length >= 5) return;
+    setFloatingPhases(prev => [...prev, { durationYears: 1, rateAnnual: 0.09 }]);
+  };
+
+  const removePhase = (idx: number) => {
+    setFloatingPhases(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const updatePhase = (idx: number, field: keyof FloatingPhase, value: number) => {
+    setFloatingPhases(prev => prev.map((p, i) => i === idx ? { ...p, [field]: value } : p));
+  };
+
+  // Validasi total durasi fase berjenjang
+  const totalTransitionYears = floatingPhases.reduce((s, p) => s + p.durationYears, 0);
+  const remainingFloatingYears = form.loanPeriodYears - form.fixedPeriodYears - totalTransitionYears;
+  const isDurationValid = remainingFloatingYears >= 0;
+
   const kprResult = calculateKPR({
     propertyPrice: form.propertyPrice,
     downPayment: form.downPayment,
@@ -153,6 +217,7 @@ export function KPRContent() {
     fixedRateAnnual: form.fixedRateAnnual,
     fixedPeriodYears: form.fixedPeriodYears,
     floatingRateAnnual: form.floatingRateAnnual,
+    floatingPhases: berjenjang ? floatingPhases : [],
   });
 
   const additionalCosts = calculateAdditionalCosts({
@@ -184,8 +249,13 @@ export function KPRContent() {
 
   const displayRows = showAllRows ? kprResult.schedule : kprResult.schedule.slice(0, 24);
 
+  // Buat legenda fase unik untuk ditampilkan di header tabel amortisasi
+  const uniquePhases = Array.from(
+    new Map(kprResult.schedule.map(r => [r.phaseIndex, r.phaseLabel])).entries()
+  ).sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0));
+
   if (loading) {
-     return <div className="flex h-64 items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>;
+    return <div className="flex h-64 items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>;
   }
 
   return (
@@ -196,7 +266,7 @@ export function KPRContent() {
           <h1 className="text-2xl font-bold text-foreground">Simulasi KPR</h1>
           <p className="text-muted-foreground text-sm mt-1">Hitung cicilan, amortisasi, dan biaya-biaya KPR secara lengkap</p>
         </div>
-        <button 
+        <button
           onClick={() => setShowSaveModal(true)}
           className="flex items-center gap-2 bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-glow"
         >
@@ -206,58 +276,278 @@ export function KPRContent() {
 
       {/* Saved Simulations Bar */}
       {simulations.length > 0 && (
-         <div className="card-premium p-4 flex gap-3 overflow-x-auto no-scrollbar">
-            <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground px-2 border-r border-border shrink-0">
-               <Bookmark className="w-4 h-4" /> Tersimpan
+        <div className="card-premium p-4 flex gap-3 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground px-2 border-r border-border shrink-0">
+            <Bookmark className="w-4 h-4" /> Tersimpan
+          </div>
+          {simulations.map(sim => (
+            <div
+              key={sim.id}
+              onClick={() => loadSimulation(sim)}
+              className="flex items-center justify-between gap-3 shrink-0 bg-muted/50 hover:bg-muted border border-border px-3 py-1.5 rounded-lg text-sm cursor-pointer transition-colors group"
+            >
+              <div>
+                <span className="font-medium">{sim.name}</span>
+                <span className="text-xs text-muted-foreground block font-numeric">{formatRupiahCompact(Number(sim.property_price))}</span>
+              </div>
+              <button onClick={(e) => deleteSimulation(sim.id, e)} className="p-1 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
-            {simulations.map(sim => (
-               <div 
-                 key={sim.id} 
-                 onClick={() => loadSimulation(sim)}
-                 className="flex items-center justify-between gap-3 shrink-0 bg-muted/50 hover:bg-muted border border-border px-3 py-1.5 rounded-lg text-sm cursor-pointer transition-colors group"
-               >
-                  <div>
-                    <span className="font-medium">{sim.name}</span>
-                    <span className="text-xs text-muted-foreground block font-numeric">{formatRupiahCompact(Number(sim.property_price))}</span>
-                  </div>
-                  <button onClick={(e) => deleteSimulation(sim.id, e)} className="p-1 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-               </div>
-            ))}
-         </div>
+          ))}
+        </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* ── LEFT: Input Form ── */}
         <div className="col-span-1 space-y-4">
           <div className="card-premium p-5">
-            <h2 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-              <Calculator className="w-4 h-4 text-primary-500" /> Input Data KPR
+            <h2 className="text-xl font-bold text-foreground mb-5 flex items-center gap-2">
+              <Calculator className="w-5 h-5 text-foreground" /> Data KPR
             </h2>
-            <div className="space-y-3">
-              {[
-                { label: 'Harga Properti', field: 'propertyPrice', prefix: 'Rp' },
-                { label: 'Uang Muka (DP)', field: 'downPayment', prefix: 'Rp' },
-                { label: 'Periode KPR (tahun)', field: 'loanPeriodYears', prefix: '' },
-                { label: '% Bunga Fix /tahun', field: 'fixedRateAnnual', prefix: '%', isPercent: true },
-                { label: 'Periode Bunga Fix (tahun)', field: 'fixedPeriodYears', prefix: '' },
-                { label: '% Bunga Floating /tahun', field: 'floatingRateAnnual', prefix: '%', isPercent: true },
-                { label: 'Pendapatan Bulanan', field: 'monthlyIncome', prefix: 'Rp' },
-              ].map(({ label, field, isPercent }) => (
-                <div key={field}>
-                  <label className="text-xs text-muted-foreground font-medium block mb-1">{label}</label>
+
+            <div className="flex gap-2 mb-6">
+              <button
+                onClick={() => setBerjenjang(false)}
+                className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all border ${
+                  !berjenjang
+                    ? 'bg-blue-500/10 border-blue-500 text-blue-600'
+                    : 'bg-muted/50 border-transparent text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                Single Float
+              </button>
+              <button
+                onClick={() => setBerjenjang(true)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all border ${
+                  berjenjang
+                    ? 'bg-blue-500/10 border-blue-500 text-blue-600'
+                    : 'bg-muted/50 border-transparent text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <Layers className="w-4 h-4" /> Berjenjang
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-semibold text-foreground block mb-1.5">Harga Properti (Rp)</label>
+                <input
+                  type="number"
+                  value={form.propertyPrice || ''}
+                  onChange={(e) => handleChange('propertyPrice', parseFloat(e.target.value) || 0)}
+                  className="w-full bg-background border border-border rounded-xl px-4 py-3 text-base text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-foreground block mb-1.5">Uang Muka / DP (Rp)</label>
+                <input
+                  type="number"
+                  value={form.downPayment || ''}
+                  onChange={(e) => handleChange('downPayment', parseFloat(e.target.value) || 0)}
+                  className="w-full bg-background border border-border rounded-xl px-4 py-3 text-base text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  {(form.propertyPrice > 0 ? ((form.downPayment / form.propertyPrice) * 100).toFixed(1) : 0)}% dari harga properti
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-foreground block mb-1.5">Periode KPR (Tahun)</label>
+                <input
+                  type="number"
+                  value={form.loanPeriodYears || ''}
+                  onChange={(e) => handleChange('loanPeriodYears', parseFloat(e.target.value) || 0)}
+                  className="w-full bg-background border border-border rounded-xl px-4 py-3 text-base text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div className="h-px bg-border/60 my-2" />
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-foreground block mb-1.5">Bunga Fix p.a (%)</label>
                   <input
                     type="number"
-                    value={isPercent ? (form[field as keyof typeof form] as number) * 100 : form[field as keyof typeof form] as number}
-                    onChange={(e) => handleChange(field, isPercent ? parseFloat(e.target.value) / 100 : parseFloat(e.target.value) || 0)}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    step={isPercent ? '0.01' : field.includes('Years') ? '1' : '100000'}
+                    value={parseFloat((form.fixedRateAnnual * 100).toFixed(2))}
+                    onChange={(e) => handleChange('fixedRateAnnual', (parseFloat(e.target.value) || 0) / 100)}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
                 </div>
-              ))}
+                <div>
+                  <label className="text-xs font-semibold text-foreground block mb-1.5">Periode Fix (Thn)</label>
+                  <input
+                    type="number"
+                    value={form.fixedPeriodYears || ''}
+                    onChange={(e) => handleChange('fixedPeriodYears', parseFloat(e.target.value) || 0)}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+
+              {!berjenjang && (
+                <div>
+                  <label className="text-xs font-semibold text-foreground block mb-1.5">Bunga Floating Cap p.a (%)</label>
+                  <input
+                    type="number"
+                    value={parseFloat((form.floatingRateAnnual * 100).toFixed(2))}
+                    onChange={(e) => handleChange('floatingRateAnnual', (parseFloat(e.target.value) || 0) / 100)}
+                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              )}
+
+              <div className="h-px bg-border/60 my-2" />
+
+              <div>
+                <label className="text-sm font-semibold text-foreground block mb-1.5">Pendapatan Bulanan (Rp)</label>
+                <input
+                  type="number"
+                  value={form.monthlyIncome || ''}
+                  onChange={(e) => handleChange('monthlyIncome', parseFloat(e.target.value) || 0)}
+                  className="w-full bg-background border border-border rounded-xl px-4 py-3 text-base text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
             </div>
           </div>
+
+          {/* ── BUNGA BERJENJANG CONFIGURATION ── */}
+          {berjenjang && (
+            <div className="card-premium p-5">
+              <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center justify-between">
+                <span>Fase Bunga Transisi</span>
+                <span className="text-[10px] font-semibold bg-primary-500/15 text-primary-500 px-2 py-0.5 rounded-full">
+                  {floatingPhases.length} Fase
+                </span>
+              </h2>
+
+              <div className="space-y-4 tracking-tight">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Durasi transisi total tidak boleh melebihi sisa tenor ({form.loanPeriodYears - form.fixedPeriodYears} tahun).
+                </p>
+
+                {/* Visualisasi timeline */}
+                <div className="flex items-center gap-0.5 h-6 rounded-md overflow-hidden text-[10px] font-bold">
+                  <div
+                    className="flex items-center justify-center bg-blue-500 text-white overflow-hidden shrink-0 h-full"
+                    style={{ width: `${(form.fixedPeriodYears / form.loanPeriodYears) * 100}%`, minWidth: 4 }}
+                    title={`Fix: ${form.fixedPeriodYears}th`}
+                  >
+                    {form.fixedPeriodYears >= 1 ? `${form.fixedPeriodYears}t` : ''}
+                  </div>
+                  {floatingPhases.map((p, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-center text-white overflow-hidden shrink-0 h-full"
+                      style={{ width: `${(p.durationYears / form.loanPeriodYears) * 100}%`, minWidth: 4, background: PHASE_COLORS[i + 1]?.hex ?? '#a855f7' }}
+                      title={`Transisi ${i + 1}: ${p.durationYears}th`}
+                    >
+                      {p.durationYears >= 1 ? `${p.durationYears}t` : ''}
+                    </div>
+                  ))}
+                  {remainingFloatingYears > 0 && (
+                    <div
+                      className="flex items-center justify-center bg-orange-500 text-white overflow-hidden shrink-0 h-full"
+                      style={{ width: `${(remainingFloatingYears / form.loanPeriodYears) * 100}%`, minWidth: 4 }}
+                      title={`Floating: ${remainingFloatingYears}th`}
+                    >
+                      {remainingFloatingYears >= 1 ? `${remainingFloatingYears}t` : ''}
+                    </div>
+                  )}
+                </div>
+
+                {!isDurationValid && (
+                  <p className="text-xs text-red-500 font-medium py-1.5 px-3 bg-red-500/10 rounded-lg">
+                    ⚠️ Total durasi fase ({totalTransitionYears}th) melebihi sisa tenor ({form.loanPeriodYears - form.fixedPeriodYears}th). Kurangi durasi transisi.
+                  </p>
+                )}
+
+                {floatingPhases.map((phase, idx) => (
+                  <div
+                    key={idx}
+                    className={`rounded-xl border p-3.5 space-y-3 ${PHASE_COLORS[idx + 1]?.bg} ${PHASE_COLORS[idx + 1]?.border}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold ${PHASE_COLORS[idx + 1]?.text}`}>
+                        Transisi {idx + 1}
+                      </span>
+                      <button
+                        onClick={() => removePhase(idx)}
+                        className="text-muted-foreground hover:text-red-500 transition-colors bg-background rounded-full p-1"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-muted-foreground mb-1">Durasi (tahun)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={form.loanPeriodYears}
+                          value={phase.durationYears || ''}
+                          onChange={e => updatePhase(idx, 'durationYears', Number(e.target.value) || 1)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-numeric focus:outline-none focus:border-primary-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-muted-foreground mb-1">Bunga /tahun (%)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          value={parseFloat((phase.rateAnnual * 100).toFixed(2))}
+                          onChange={e => updatePhase(idx, 'rateAnnual', (parseFloat(e.target.value) || 0) / 100)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-numeric focus:outline-none focus:border-primary-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {floatingPhases.length < 5 && isDurationValid && remainingFloatingYears > 0 && (
+                  <button
+                    onClick={addPhase}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-semibold text-primary-500 border border-dashed border-primary-500/40 rounded-xl hover:bg-primary-500/5 transition-colors"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Tambah Fase Transisi
+                  </button>
+                )}
+
+                <div className="pt-2">
+                  <label className="text-xs font-semibold text-foreground block mb-1.5">Bunga Floating Akhir p.a (%)</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={parseFloat((form.floatingRateAnnual * 100).toFixed(2))}
+                      onChange={(e) => handleChange('floatingRateAnnual', (parseFloat(e.target.value) || 0) / 100)}
+                      className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                    <div className="text-[10px] text-muted-foreground bg-muted/60 px-3 py-2 rounded-lg border border-border shrink-0">
+                      Sisa: {Math.max(0, remainingFloatingYears)} thn
+                    </div>
+                  </div>
+                </div>
+
+                {/* Ringkasan fase */}
+                <div className="text-xs text-muted-foreground pt-3 space-y-1.5 border-t border-border/60">
+                  <div className="flex justify-between"><span>Fix ({form.fixedPeriodYears} thn)</span><span className="font-numeric font-semibold">{formatPercent(form.fixedRateAnnual)}</span></div>
+                  {floatingPhases.map((p, i) => (
+                    <div key={i} className="flex justify-between">
+                      <span>Transisi {i + 1} ({p.durationYears} thn)</span>
+                      <span className="font-numeric font-semibold">{formatPercent(p.rateAnnual)}</span>
+                    </div>
+                  ))}
+                  {remainingFloatingYears > 0 && (
+                    <div className="flex justify-between"><span>Floating ({remainingFloatingYears} thn)</span><span className="font-numeric font-semibold">{formatPercent(form.floatingRateAnnual)}</span></div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Rasio Cicilan */}
           <div className="card-premium p-5">
@@ -269,7 +559,7 @@ export function KPRContent() {
               {statusLabels[ratioResult.status]}
             </div>
             <InfoRow label="Cicilan Min (fix)" value={formatRupiah(kprResult.summary.minInstallment)} />
-            <InfoRow label="Cicilan Maks (floating)" value={formatRupiah(kprResult.summary.maxInstallment)} />
+            <InfoRow label="Cicilan Maks" value={formatRupiah(kprResult.summary.maxInstallment)} />
             <InfoRow label="Rasio Min (vs Gaji)" value={formatPercent(ratioResult.minRatio)} />
             <InfoRow label="Rasio Maks (vs Gaji)" value={formatPercent(ratioResult.maxRatio)} />
             <p className="text-xs text-muted-foreground mt-4 leading-relaxed p-3 bg-muted/50 rounded-lg">{ratioResult.conclusion}</p>
@@ -344,13 +634,49 @@ export function KPRContent() {
                   <InfoRow label={`Sisa Pokok Saat Bunga Floating (Setelah Tahun ke-${form.fixedPeriodYears})`} value={formatRupiah(kprResult.summary.remainingAtFloating)} />
                   <InfoRow label="Total Biaya Siluman (Notaris, Pajak, dll)" value={formatRupiah(additionalCosts.total)} />
                   <div className="bg-primary-500/5 p-3 rounded-lg border border-primary-500/10 mt-4">
-                     <InfoRow label="Modal Awal Yang Harus Disiapkan (DP + Biaya Tambahan)" value={formatRupiah(form.downPayment + additionalCosts.total)} highlight />
+                    <InfoRow label="Modal Awal Yang Harus Disiapkan (DP + Biaya Tambahan)" value={formatRupiah(form.downPayment + additionalCosts.total)} highlight />
                   </div>
+
+                  {/* Ringkasan fase berjenjang */}
+                  {berjenjang && (
+                    <div className="mt-2 p-3 rounded-lg border border-border bg-muted/30 space-y-2">
+                      <p className="text-xs font-semibold text-foreground flex items-center gap-1.5"><Layers className="w-3.5 h-3.5 text-primary-500" /> Struktur Bunga Berjenjang</p>
+                      <div className="space-y-1">
+                        {uniquePhases.map(([idx, label]) => {
+                          const style = getPhaseStyling(idx ?? 0, floatingPhases.length);
+                          const count = kprResult.schedule.filter(r => r.phaseIndex === idx).length;
+                          return (
+                            <div key={idx} className="flex items-center justify-between text-xs">
+                              <span className={`inline-flex items-center gap-1 font-medium ${style.text}`}>
+                                <span className={`w-2 h-2 rounded-full`} style={{ background: PHASE_COLORS[Math.min((idx ?? 0), PHASE_COLORS.length - 1)]?.hex }} />
+                                {label}
+                              </span>
+                              <span className="text-muted-foreground">{count} bulan</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {tab === 'amortisasi' && (
                 <div>
+                  {/* Legenda fase */}
+                  {berjenjang && uniquePhases.length > 1 && (
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {uniquePhases.map(([idx, label]) => {
+                        const phaseIdx = idx ?? 0;
+                        const colorIdx = Math.min(phaseIdx, PHASE_COLORS.length - 1);
+                        return (
+                          <span key={idx} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PHASE_COLORS[colorIdx].badge}`}>
+                            {label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                   <table className="w-full text-xs box-border">
                     <thead>
                       <tr className="border-b border-border bg-muted/30">
@@ -361,13 +687,20 @@ export function KPRContent() {
                     </thead>
                     <tbody>
                       {displayRows.map((row) => {
-                        const isFloating = row.period > form.fixedPeriodYears * 12;
+                        const phaseIdx = row.phaseIndex ?? 0;
+                        const colorIdx = Math.min(phaseIdx, PHASE_COLORS.length - 1);
+                        const isFixed = phaseIdx === 0;
+                        const rowBg = isFixed ? '' : `${PHASE_COLORS[colorIdx].bg}`;
                         return (
-                          <tr key={row.period} className={`border-b border-border/40 hover:bg-muted/50 ${isFloating ? 'bg-orange-50/20' : ''}`}>
+                          <tr key={row.period} className={`border-b border-border/40 hover:brightness-95 ${rowBg}`}>
                             <td className="py-2.5 px-2 font-numeric">{row.period}</td>
                             <td className="py-2.5 px-2">
                               {row.date.toLocaleDateString('id-ID', { month: 'short', year: '2-digit' })}
-                              {isFloating && <span className="ml-1 text-[9px] bg-orange-100 text-orange-600 px-1 py-0.5 rounded font-medium">Float</span>}
+                              {!isFixed && row.phaseLabel && (
+                                <span className={`ml-1 text-[9px] px-1 py-0.5 rounded font-semibold ${PHASE_COLORS[colorIdx].badge}`}>
+                                  {row.phaseLabel?.split(' ')[0] === 'Transisi' ? row.phaseLabel?.split('(')[0].trim() : 'Float'}
+                                </span>
+                              )}
                             </td>
                             <td className="py-2.5 px-2 font-numeric">{formatRupiahCompact(row.beginningBalance)}</td>
                             <td className="py-2.5 px-2 font-numeric text-emerald-600">{formatRupiahCompact(row.principalPayment)}</td>
@@ -404,24 +737,24 @@ export function KPRContent() {
                       <p className="text-sm font-numeric font-semibold text-foreground bg-muted/50 px-2 py-1 rounded">{formatRupiah(item.value)}</p>
                     </div>
                   ))}
-                  
+
                   {/* Additional Modifiable Bank Fees Form Inputs shown directly inline for convenience */}
                   <div className="pt-6 pb-2">
-                     <p className="text-sm font-semibold mb-3">Biaya Bank & Appraisal (Input Manual)</p>
-                     <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-[10px] text-muted-foreground mb-1">Biaya Provisi/Admin</label>
-                          <input type="number" value={form.bankFee1 || ''} onChange={e => handleChange('bankFee1', Number(e.target.value))} className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-xs font-numeric focus:outline-none focus:border-primary-500" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] text-muted-foreground mb-1">Asuransi Jiwa</label>
-                          <input type="number" value={form.bankFee2 || ''} onChange={e => handleChange('bankFee2', Number(e.target.value))} className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-xs font-numeric focus:outline-none focus:border-primary-500" />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] text-muted-foreground mb-1">Asuransi Kebakaran</label>
-                          <input type="number" value={form.bankFee3 || ''} onChange={e => handleChange('bankFee3', Number(e.target.value))} className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-xs font-numeric focus:outline-none focus:border-primary-500" />
-                        </div>
-                     </div>
+                    <p className="text-sm font-semibold mb-3">Biaya Bank & Appraisal (Input Manual)</p>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-muted-foreground mb-1">Biaya Provisi/Admin</label>
+                        <input type="number" value={form.bankFee1 || ''} onChange={e => handleChange('bankFee1', Number(e.target.value))} className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-xs font-numeric focus:outline-none focus:border-primary-500" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-muted-foreground mb-1">Asuransi Jiwa</label>
+                        <input type="number" value={form.bankFee2 || ''} onChange={e => handleChange('bankFee2', Number(e.target.value))} className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-xs font-numeric focus:outline-none focus:border-primary-500" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-muted-foreground mb-1">Asuransi Kebakaran</label>
+                        <input type="number" value={form.bankFee3 || ''} onChange={e => handleChange('bankFee3', Number(e.target.value))} className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-xs font-numeric focus:outline-none focus:border-primary-500" />
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex justify-between items-center py-4 bg-primary-500/10 px-4 rounded-xl mt-4 border border-primary-500/20">
@@ -451,6 +784,11 @@ export function KPRContent() {
                 <label className="block text-xs font-medium text-foreground mb-1.5">Nama Simulasi</label>
                 <input required autoFocus value={simName} onChange={e => setSimName(e.target.value)} type="text" className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="e.g. Cluster Bintaro Jaya" />
               </div>
+              {berjenjang && (
+                <p className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-lg">
+                  Simulasi akan disimpan dengan <strong>{floatingPhases.length} fase bunga berjenjang</strong>.
+                </p>
+              )}
               <div className="pt-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setShowSaveModal(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-lg">Batal</button>
                 <button disabled={isSaving} type="submit" className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-lg shadow-glow">

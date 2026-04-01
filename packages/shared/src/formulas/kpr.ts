@@ -70,29 +70,31 @@ export function calculateKPR(input: {
   const schedule: AmortizationRow[] = [];
   
   // 1. Petakan (Map) suku bunga per bulannya berdasarkan fase yang ada
-  const monthlyRates: { rate: number; isPhaseStart: boolean }[] = [];
+  const monthlyRates: { rate: number; isPhaseStart: boolean; phaseIndex: number; phaseLabel: string }[] = [];
   
-  // Fase 1: Fix
+  // Fase 0: Fix
   for (let m = 1; m <= fixedPeriods; m++) {
-    monthlyRates.push({ rate: fixedMonthlyRate, isPhaseStart: m === 1 });
+    monthlyRates.push({ rate: fixedMonthlyRate, isPhaseStart: m === 1, phaseIndex: 0, phaseLabel: `Fix (${(input.fixedRateAnnual * 100).toFixed(2)}%)` });
   }
 
-  // Fase 2: Transisi Berjenjang (Opsional)
-  for (const phase of floatingPhases) {
+  // Fase 1..N: Transisi Berjenjang (Opsional)
+  floatingPhases.forEach((phase, idx) => {
     const phaseMonths = phase.durationYears * 12;
     const phaseMonthlyRate = phase.rateAnnual / 12;
+    const label = `Transisi ${idx + 1} (${(phase.rateAnnual * 100).toFixed(2)}%)`;
     for (let m = 1; m <= phaseMonths; m++) {
       // Pastikan kita tidak melebihi total masa tenor KPR
       if (monthlyRates.length < totalPeriods) {
-        monthlyRates.push({ rate: phaseMonthlyRate, isPhaseStart: m === 1 });
+        monthlyRates.push({ rate: phaseMonthlyRate, isPhaseStart: m === 1, phaseIndex: idx + 1, phaseLabel: label });
       }
     }
-  }
+  });
 
-  // Fase 3: Floating / Capping Akhir
+  // Fase N+1: Floating / Capping Akhir
+  const floatingPhaseIndex = floatingPhases.length + 1;
   const remainingMonths = totalPeriods - monthlyRates.length;
   for (let m = 1; m <= remainingMonths; m++) {
-    monthlyRates.push({ rate: floatingMonthlyRate, isPhaseStart: m === 1 });
+    monthlyRates.push({ rate: floatingMonthlyRate, isPhaseStart: m === 1, phaseIndex: floatingPhaseIndex, phaseLabel: `Floating (${(input.floatingRateAnnual * 100).toFixed(2)}%)` });
   }
 
   // 2. Kalkulasi Iteratif Bulanan
@@ -135,6 +137,8 @@ export function calculateKPR(input: {
       interestPayment,
       totalPayment,
       endingBalance: Math.max(0, balance),
+      phaseIndex: currentPhase.phaseIndex,
+      phaseLabel: currentPhase.phaseLabel,
     });
   }
 
