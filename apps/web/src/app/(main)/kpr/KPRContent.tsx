@@ -370,7 +370,7 @@ export function KPRContent() {
                   <label className="text-xs font-semibold text-foreground block mb-1.5">Bunga Fix p.a (%)</label>
                   <input
                     type="number"
-                    value={parseFloat((form.fixedRateAnnual * 100).toFixed(2))}
+                    value={form.fixedRateAnnual ? parseFloat((form.fixedRateAnnual * 100).toFixed(2)) : ''}
                     onChange={(e) => handleChange('fixedRateAnnual', (parseFloat(e.target.value) || 0) / 100)}
                     className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
@@ -391,7 +391,7 @@ export function KPRContent() {
                   <label className="text-xs font-semibold text-foreground block mb-1.5">Bunga Floating Cap p.a (%)</label>
                   <input
                     type="number"
-                    value={parseFloat((form.floatingRateAnnual * 100).toFixed(2))}
+                    value={form.floatingRateAnnual ? parseFloat((form.floatingRateAnnual * 100).toFixed(2)) : ''}
                     onChange={(e) => handleChange('floatingRateAnnual', (parseFloat(e.target.value) || 0) / 100)}
                     className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
                   />
@@ -498,7 +498,7 @@ export function KPRContent() {
                           min={0}
                           max={100}
                           step="0.01"
-                          value={parseFloat((phase.rateAnnual * 100).toFixed(2))}
+                          value={phase.rateAnnual ? parseFloat((phase.rateAnnual * 100).toFixed(2)) : ''}
                           onChange={e => updatePhase(idx, 'rateAnnual', (parseFloat(e.target.value) || 0) / 100)}
                           className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-numeric focus:outline-none focus:border-primary-500"
                         />
@@ -522,7 +522,7 @@ export function KPRContent() {
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      value={parseFloat((form.floatingRateAnnual * 100).toFixed(2))}
+                      value={form.floatingRateAnnual ? parseFloat((form.floatingRateAnnual * 100).toFixed(2)) : ''}
                       onChange={(e) => handleChange('floatingRateAnnual', (parseFloat(e.target.value) || 0) / 100)}
                       className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground font-numeric focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />

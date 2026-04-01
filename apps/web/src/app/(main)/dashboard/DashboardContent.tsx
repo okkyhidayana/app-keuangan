@@ -5,60 +5,35 @@ import Link from 'next/link';
 import { formatRupiah, formatRupiahCompact, formatPercent, getStatusColor } from '@/lib/utils';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, AreaChart, Area } from 'recharts';
 
-// ── Demo data (nanti diganti dengan data dari Supabase) ──
+// ── Batas state awal (0 / kosong) ──
 const demoNetWorth = {
-  current: 462_000_000,
-  previous: 440_000_000,
-  growth: 0.05,
-  totalAssets: 567_000_000,
-  totalDebts: 105_000_000,
+  current: 0,
+  previous: 0,
+  growth: 0,
+  totalAssets: 0,
+  totalDebts: 0,
 };
 
-const demoNetWorthHistory = [
-  { bulan: 'Jan', netWorth: 430_000_000 },
-  { bulan: 'Feb', netWorth: 440_000_000 },
-  { bulan: 'Mar', netWorth: 452_000_000 },
-  { bulan: 'Apr', netWorth: 460_000_000 },
-  { bulan: 'Mei', netWorth: 455_000_000 },
-  { bulan: 'Jun', netWorth: 462_000_000 },
-];
+const demoNetWorthHistory: any[] = [];
 
 const demoCashFlow = {
-  totalMasuk: 16_180_000,
-  totalKeluar: 16_150_000,
-  surplus: 30_000,
+  totalMasuk: 0,
+  totalKeluar: 0,
+  surplus: 0,
 };
 
 const demoCheckup = [
-  { name: 'Dana Darurat', value: 0.52, max: 1, status: 'warning' as const },
-  { name: 'Arus Kas', value: 0.85, max: 1, status: 'sehat' as const },
-  { name: 'Rasio Cicilan', value: 0.70, max: 1, status: 'sehat' as const },
-  { name: 'Investasi', value: 0.99, max: 1, status: 'sehat' as const },
-  { name: 'Biaya Hidup', value: 0.65, max: 1, status: 'warning' as const },
-  { name: 'Solvabilitas', value: 1, max: 1, status: 'sehat' as const },
+  { name: 'Dana Darurat', value: 0, max: 1, status: 'warning' as const },
+  { name: 'Arus Kas', value: 0, max: 1, status: 'warning' as const },
+  { name: 'Rasio Cicilan', value: 0, max: 1, status: 'warning' as const },
+  { name: 'Investasi', value: 0, max: 1, status: 'warning' as const },
+  { name: 'Biaya Hidup', value: 0, max: 1, status: 'warning' as const },
+  { name: 'Solvabilitas', value: 0, max: 1, status: 'warning' as const },
 ];
 
-const demoSavings = [
-  { name: 'Dana Darurat 6x', progress: 52, target: 96_000_000, saved: 50_000_000, color: '#635bff' },
-  { name: 'DP Rumah', progress: 30, target: 200_000_000, saved: 60_000_000, color: '#3ecf8e' },
-  { name: 'Liburan Japan', progress: 65, target: 30_000_000, saved: 19_500_000, color: '#f5a623' },
-];
-
-const demoBudget = [
-  { category: 'Pendapatan', planned: 16_180_000, actual: 16_180_000, color: '#3ecf8e' },
-  { category: 'Tabungan', planned: 4_850_000, actual: 4_850_000, color: '#635bff' },
-  { category: 'Tagihan', planned: 3_500_000, actual: 3_200_000, color: '#f5a623' },
-  { category: 'Biaya Hidup', planned: 6_300_000, actual: 6_100_000, color: '#06b6d4' },
-  { category: 'Hutang', planned: 5_000_000, actual: 5_000_000, color: '#ef4444' },
-];
-
-const demoTransactions = [
-  { name: 'Gaji Bulanan', amount: 9_500_000, category: 'PENDAPATAN', date: '01 Apr' },
-  { name: 'Konsumsi', amount: -450_000, category: 'BIAYA_OPERASIONAL', date: '01 Apr' },
-  { name: 'Cicilan Mobil', amount: -4_000_000, category: 'HUTANG', date: '01 Apr' },
-  { name: 'Top Up Investasi', amount: -4_000_000, category: 'TABUNGAN_INVESTASI', date: '31 Mar' },
-  { name: 'Side Job', amount: 2_500_000, category: 'PENDAPATAN', date: '30 Mar' },
-];
+const demoSavings: any[] = [];
+const demoBudget: any[] = [];
+const demoTransactions: any[] = [];
 
 // ── Custom Tooltip ──
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: { value: number }[] }) {

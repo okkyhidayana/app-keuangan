@@ -529,7 +529,7 @@ export function NetWorthContent() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1.5">Bunga/Tahun (Desimal)</label>
-                  <input required min={0} step="0.001" value={debtForm.interest_rate} onChange={e => setDebtForm({...debtForm, interest_rate: Number(e.target.value)})} type="number" className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="0.05 untuk 5%" />
+                  <input required min={0} step="0.001" value={debtForm.interest_rate || ''} onChange={e => setDebtForm({...debtForm, interest_rate: Number(e.target.value)})} type="number" className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="0.05 untuk 5%" />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-foreground mb-1.5">Tgl Jatuh Tempo (1-31)</label>
