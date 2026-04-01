@@ -5,8 +5,8 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "turbo run dev",
-    "build": "cd apps/web && npm run build && cp -R .next ../../.next",
-    "start": "cd apps/web && npm start",
+    "build": "turbo run build",
+    "start": "turbo run start",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
     "dev:web": "pnpm --filter web dev",
