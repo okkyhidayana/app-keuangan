@@ -45,9 +45,7 @@ function addMonths(date: Date, months: number): Date {
 // ===== KALKULASI TABEL AMORTISASI KPR =====
 /**
  * calculateKPR — Hitung tabel amortisasi lengkap menggunakan Iterative Balance Tracking
- * 
- * Metode iteratif (H5 = D5 - E5) jauh lebih stabil secara numerik karena terhindar dari 
- * error eksponensial (1+r)^n pada cicilan periode-periode akhir di Javascript (IEEE 754).
+ * Mendukung KPR Lurus (1 Fix + 1 Float) maupun KPR Berjenjang (Array of Floating Transitions)
  */
 export function calculateKPR(input: {
   propertyPrice: number;
@@ -55,14 +53,15 @@ export function calculateKPR(input: {
   loanPeriodYears: number;
   fixedRateAnnual: number;
   fixedPeriodYears: number;
-  floatingRateAnnual: number;
+  floatingRateAnnual: number; // Bertindak sebagai batas atas (Cap Rate) jika ada transisi
+  floatingPhases?: { durationYears: number; rateAnnual: number }[]; // Fase Bunga Transisi
   startDate?: Date;
   monthlyIncome?: number;
 }): KPRResult {
   const loanPrincipal = input.propertyPrice - input.downPayment;
   const totalPeriods = input.loanPeriodYears * 12;
   const fixedPeriods = input.fixedPeriodYears * 12;
-  const floatingPeriods = totalPeriods - fixedPeriods;
+  const floatingPhases = input.floatingPhases ?? [];
 
   const fixedMonthlyRate = input.fixedRateAnnual / 12;
   const floatingMonthlyRate = input.floatingRateAnnual / 12;
@@ -70,36 +69,63 @@ export function calculateKPR(input: {
   const startDate = input.startDate ?? new Date();
   const schedule: AmortizationRow[] = [];
   
-  // Cicilan bulanan selama periode Fix menggunakan sisa tenor keseluruhan
-  const fixPMT = calculatePMT(fixedMonthlyRate, totalPeriods, loanPrincipal);
-  let floatPMT = 0;
+  // 1. Petakan (Map) suku bunga per bulannya berdasarkan fase yang ada
+  const monthlyRates: { rate: number; isPhaseStart: boolean }[] = [];
+  
+  // Fase 1: Fix
+  for (let m = 1; m <= fixedPeriods; m++) {
+    monthlyRates.push({ rate: fixedMonthlyRate, isPhaseStart: m === 1 });
+  }
 
+  // Fase 2: Transisi Berjenjang (Opsional)
+  for (const phase of floatingPhases) {
+    const phaseMonths = phase.durationYears * 12;
+    const phaseMonthlyRate = phase.rateAnnual / 12;
+    for (let m = 1; m <= phaseMonths; m++) {
+      // Pastikan kita tidak melebihi total masa tenor KPR
+      if (monthlyRates.length < totalPeriods) {
+        monthlyRates.push({ rate: phaseMonthlyRate, isPhaseStart: m === 1 });
+      }
+    }
+  }
+
+  // Fase 3: Floating / Capping Akhir
+  const remainingMonths = totalPeriods - monthlyRates.length;
+  for (let m = 1; m <= remainingMonths; m++) {
+    monthlyRates.push({ rate: floatingMonthlyRate, isPhaseStart: m === 1 });
+  }
+
+  // 2. Kalkulasi Iteratif Bulanan
   let balance = loanPrincipal;
   let remainingAtFloating = 0;
+  let currentPMT = 0;
+  let minInstallment = Infinity;
+  let maxInstallment = 0;
 
   for (let period = 1; period <= totalPeriods; period++) {
     const date = addMonths(startDate, period - 1);
     const beginningBalance = balance;
+    const currentPhase = monthlyRates[period - 1];
 
-    let principalPayment: number;
-    let interestPayment: number;
-
-    if (period <= fixedPeriods) {
-      // Fase FIX
-      interestPayment = balance * fixedMonthlyRate;
-      principalPayment = fixPMT - interestPayment;
-    } else {
-      // Fase FLOATING
+    // Jika terjadi perpindahan fase suku bunga, rekalkulasi PMT baru
+    if (currentPhase.isPhaseStart || period === 1) {
+      const remainingPeriod = totalPeriods - period + 1;
+      currentPMT = calculatePMT(currentPhase.rate, remainingPeriod, balance);
+      
+      // Catat saldo saat pertama kali lepas landas dari masa fix
       if (period === fixedPeriods + 1) {
-        remainingAtFloating = balance; // Catat sisa saldo akhir dari periode fix
-        floatPMT = calculatePMT(floatingMonthlyRate, floatingPeriods, remainingAtFloating);
+        remainingAtFloating = balance;
       }
-      interestPayment = balance * floatingMonthlyRate;
-      principalPayment = floatPMT - interestPayment;
     }
 
+    const interestPayment = balance * currentPhase.rate;
+    const principalPayment = currentPMT - interestPayment;
     const totalPayment = principalPayment + interestPayment;
     balance = beginningBalance - principalPayment;
+
+    // Catat nilai cicilan terendah dan tertinggi dari seluruh rentang umur KPR
+    if (totalPayment < minInstallment) minInstallment = totalPayment;
+    if (totalPayment > maxInstallment) maxInstallment = totalPayment;
 
     schedule.push({
       period,
@@ -112,13 +138,11 @@ export function calculateKPR(input: {
     });
   }
 
+  if (minInstallment === Infinity) minInstallment = 0;
+
   const totalInterestPaid = schedule.reduce((sum, r) => sum + r.interestPayment, 0);
   const totalPaid = loanPrincipal + totalInterestPaid;
   const interestToPrincipalRatio = loanPrincipal > 0 ? totalInterestPaid / loanPrincipal : 0;
-
-  const minInstallment = schedule[0]?.totalPayment ?? 0;
-  // Di saat masa fix lebih besar atau sama persis dengan totalPinjaman, tidak ada floating
-  const maxInstallment = floatingPeriods > 0 ? floatPMT : minInstallment;
 
   return {
     schedule,

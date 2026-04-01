@@ -268,3 +268,28 @@ Akurasi matematis formula budgeting tidak memiliki *discrepancy* dengan template
 
 ## ✅ Kesimpulan
 Kedua modul tersebut (`checkup.ts` & `budgeting.ts`) dijamin bebas *bug* logika matematika, memiliki *handling* nilai nol yang aman, dan siap 100% dari segi validitas akuntansi. Fokus *refactoring* hanya perlu dititikberatkan pada penyelesaian cacat kalkulasi finansial di file formula KPR (`kpr.ts`).
+
+---
+
+<br>
+
+# 🚀 Rencana Pengembangan: KPR Berjenjang (Tiered/Transition Floating Rates)
+
+> **Referensi**: `contoh KPR 573jt Fixed Floating.xlsx` (Cerminan dari Produk KPR BCA Berjenjang)
+
+Berdasarkan hasil studi kasus, realita perhitungan KPR untuk bunga *floating* tidak selalu langsung melonjak tajam (1 fase). Bank sering memberi penyesuaian (transisi) tahunan sebelum menyentuh batas atas (CAP). 
+
+## Konsep yang Akan Diimplementasikan
+Sistem akan di-_upgrade_ dari model "1 Fix + 1 Float" menjadi "**Array of Rates**" dengan struktur dinamis:
+
+1. **Struktur Data API/Tipe Baru**:
+   - `input` parameter pada `calculateKPR` akan diperluas agar dapat menerima **daftar fase suku bunga tambahan** (`floatingPhases`), yang terdiri dari Durasi (dalam tahun atau bulan) dan *Rate*-nya.
+   - Contoh struktur: `[{ year: 4, rate: 5.97% }, { year: 5, rate: 8.47% }, { year: 6, rate: 10.97% }]`.
+   - Bunga CAP / Capping (Batas Atas *Floating* Permanen) tetap akan dialokasikan hingga masa akhir KPR (Tenor Maksimal).
+
+2. **Perubahan Logika Engine (`kpr.ts`)**:
+   - Fungsi akan mengevaluasi apakah suatu periode bulan berada di dalam rentang waktu "Fase Transisi" atau "Fase Cap".
+   - Jika berpindah fase, kalkulator akan secara otomatis melakukan *Re-calculate PMT* menggunakan parameter Sisa Bulan dan Sisa Utang saat ini, identik dengan logika Excel BCA.
+
+3. **Logika UI (*Frontend*)**:
+   - Komponen UI akan bisa mengirimkan format `floatingPhases` (Bunga Berjenjang) sehingga visualisasi data di _chart_ dan tabel amortisasi jadi jauh lebih realistis.
