@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "turbo run dev",
-    "build": "turbo run build",
+    "build": "pnpm --filter web build",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
     "dev:web": "pnpm --filter web dev",
