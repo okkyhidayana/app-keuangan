@@ -7,34 +7,32 @@ import type { AmortizationRow, KPRResult, KPRAdditionalCosts } from '../types';
 
 /**
  * PMT — Hitung angsuran tetap per periode
- * Rumus: rate × PV × (1+rate)^nper / ((1+rate)^nper - 1)
+ * Asumsi: pv (pinjaman) bernilai positif, mengembalikan nilai cicilan positif
  */
 export function calculatePMT(rate: number, nper: number, pv: number): number {
-  if (rate === 0) return -pv / nper;
+  if (rate === 0) return pv / nper;
   const factor = Math.pow(1 + rate, nper);
   return (rate * pv * factor) / (factor - 1);
 }
 
 /**
  * PPMT — Pembayaran pokok pada periode tertentu
- * Rumus Excel: PPMT(rate, per, nper, pv)
+ * Catatan: Untuk keamanan numerik presisi tinggi pada tabel amortisasi panjang, 
+ * disarankan menggunakan pelacakan saldo iteratif pada calculateKPR.
  */
 export function calculatePPMT(rate: number, per: number, nper: number, pv: number): number {
   const pmt = calculatePMT(rate, nper, pv);
-  // Interest untuk periode ini = saldo awal periode × rate
-  // Saldo awal periode = pv × (1+rate)^(per-1) + pmt × ((1+rate)^(per-1) - 1) / rate
-  const fvPrev = pv * Math.pow(1 + rate, per - 1) + (rate !== 0 ? pmt * (Math.pow(1 + rate, per - 1) - 1) / rate : pmt * (per - 1));
+  const fvPrev = pv * Math.pow(1 + rate, per - 1) - (rate !== 0 ? pmt * (Math.pow(1 + rate, per - 1) - 1) / rate : pmt * (per - 1));
   const ipmt = fvPrev * rate;
   return pmt - ipmt;
 }
 
 /**
  * IPMT — Pembayaran bunga pada periode tertentu
- * Rumus Excel: IPMT(rate, per, nper, pv)
  */
 export function calculateIPMT(rate: number, per: number, nper: number, pv: number): number {
   const pmt = calculatePMT(rate, nper, pv);
-  const fvPrev = pv * Math.pow(1 + rate, per - 1) + (rate !== 0 ? pmt * (Math.pow(1 + rate, per - 1) - 1) / rate : pmt * (per - 1));
+  const fvPrev = pv * Math.pow(1 + rate, per - 1) - (rate !== 0 ? pmt * (Math.pow(1 + rate, per - 1) - 1) / rate : pmt * (per - 1));
   return fvPrev * rate;
 }
 
@@ -46,18 +44,10 @@ function addMonths(date: Date, months: number): Date {
 
 // ===== KALKULASI TABEL AMORTISASI KPR =====
 /**
- * calculateKPR — Hitung tabel amortisasi lengkap
- *
- * Periode fix: PPMT/IPMT(fixedRate/12, period, totalPeriods, -loanPrincipal)
- * Periode floating: PPMT/IPMT(floatingRate/12, floatingPeriod, floatingPeriods, -remainingAtFloating)
- *
- * Rumus Excel asli (sheet "02 Angsuran"):
- * D5 = saldo awal (= pinjaman pokok pada baris pertama, sisa pokok sebelumnya seterusnya)
- * E5 = PPMT(fixedRate/12, B5, totalPeriods, -loanPrincipal)  — periode fix
- *      atau PPMT(floatingRate/12, B5-fixedPeriods, floatingPeriods, -remainingAtFloating) — periode floating
- * F5 = IPMT(...) — sama logika dengan E5
- * G5 = E5 + F5   — total angsuran
- * H5 = D5 - E5   — sisa pokok
+ * calculateKPR — Hitung tabel amortisasi lengkap menggunakan Iterative Balance Tracking
+ * 
+ * Metode iteratif (H5 = D5 - E5) jauh lebih stabil secara numerik karena terhindar dari 
+ * error eksponensial (1+r)^n pada cicilan periode-periode akhir di Javascript (IEEE 754).
  */
 export function calculateKPR(input: {
   propertyPrice: number;
@@ -79,6 +69,11 @@ export function calculateKPR(input: {
 
   const startDate = input.startDate ?? new Date();
   const schedule: AmortizationRow[] = [];
+  
+  // Cicilan bulanan selama periode Fix menggunakan sisa tenor keseluruhan
+  const fixPMT = calculatePMT(fixedMonthlyRate, totalPeriods, loanPrincipal);
+  let floatPMT = 0;
+
   let balance = loanPrincipal;
   let remainingAtFloating = 0;
 
@@ -90,17 +85,17 @@ export function calculateKPR(input: {
     let interestPayment: number;
 
     if (period <= fixedPeriods) {
-      // Bunga FIX
-      principalPayment = Math.abs(calculatePPMT(fixedMonthlyRate, period, totalPeriods, -loanPrincipal));
-      interestPayment = Math.abs(calculateIPMT(fixedMonthlyRate, period, totalPeriods, -loanPrincipal));
+      // Fase FIX
+      interestPayment = balance * fixedMonthlyRate;
+      principalPayment = fixPMT - interestPayment;
     } else {
-      // Bunga FLOATING — saat masuk floating, catat sisa pokok
+      // Fase FLOATING
       if (period === fixedPeriods + 1) {
-        remainingAtFloating = balance;
+        remainingAtFloating = balance; // Catat sisa saldo akhir dari periode fix
+        floatPMT = calculatePMT(floatingMonthlyRate, floatingPeriods, remainingAtFloating);
       }
-      const floatingPeriod = period - fixedPeriods;
-      principalPayment = Math.abs(calculatePPMT(floatingMonthlyRate, floatingPeriod, floatingPeriods, -remainingAtFloating));
-      interestPayment = Math.abs(calculateIPMT(floatingMonthlyRate, floatingPeriod, floatingPeriods, -remainingAtFloating));
+      interestPayment = balance * floatingMonthlyRate;
+      principalPayment = floatPMT - interestPayment;
     }
 
     const totalPayment = principalPayment + interestPayment;
@@ -121,9 +116,9 @@ export function calculateKPR(input: {
   const totalPaid = loanPrincipal + totalInterestPaid;
   const interestToPrincipalRatio = loanPrincipal > 0 ? totalInterestPaid / loanPrincipal : 0;
 
-  // Cicilan min = periode fix pertama, cicilan max = periode floating pertama
   const minInstallment = schedule[0]?.totalPayment ?? 0;
-  const maxInstallment = schedule[fixedPeriods]?.totalPayment ?? minInstallment;
+  // Di saat masa fix lebih besar atau sama persis dengan totalPinjaman, tidak ada floating
+  const maxInstallment = floatingPeriods > 0 ? floatPMT : minInstallment;
 
   return {
     schedule,
@@ -206,21 +201,30 @@ export function calculateInstallmentRatio(
   let conclusion: string;
   let status: 'sehat' | 'aman' | 'berat' | 'bahaya';
 
-  if (minRatio < 0.3 && maxRatio < 0.3) {
-    conclusion = 'Rasio Sehat: Cicilan minimum dan maksimum berada dalam rasio sehat. Cicilan tidak membebani cashflow, dan masih ada ruang untuk kebutuhan lainnya, tabungan, dan investasi.';
-    status = 'sehat';
-  } else if (minRatio < 0.3 && maxRatio < 0.4) {
-    conclusion = 'Cicilan minimum dalam rasio sehat, tetapi cicilan maksimum masih dalam batas aman. Perlu pengaturan cashflow yang cermat terutama pada saat bunga floating.';
-    status = 'aman';
-  } else if (minRatio >= 0.3 && minRatio <= 0.4 && maxRatio <= 0.4) {
-    conclusion = 'Batas Aman: Cicilan minimum dan maksimum berada dalam batas aman. Cashflow perlu dikelola dengan baik dan prioritaskan dana darurat untuk menjaga stabilitas.';
-    status = 'aman';
-  } else if (minRatio >= 0.3 && minRatio <= 0.4 && maxRatio > 0.4) {
-    conclusion = 'Cicilan minimum dalam batas aman, tetapi cicilan maksimum membebani. Perhatikan cashflow terutama pada saat cicilan maksimum, dan pertimbangkan untuk mengurangi pengeluaran atau menambah penghasilan terutama pada masa floating.';
-    status = 'berat';
+  if (minRatio < 0.3) {
+    if (maxRatio < 0.3) {
+      conclusion = 'Rasio Sehat: Cicilan minimum dan maksimum berada dalam rasio sehat. Cicilan tidak membebani cashflow, dan masih ada ruang untuk kebutuhan lainnya, tabungan, dan investasi.';
+      status = 'sehat';
+    } else {
+      conclusion = 'Cicilan minimum dalam rasio sehat, tetapi cicilan maksimum masih membebani (di atas 30%). Perlu pengaturan cashflow yang cermat terutama pada saat bunga floating.';
+      status = 'aman';
+    }
+  } else if (minRatio >= 0.3 && minRatio <= 0.4) {
+    if (maxRatio <= 0.4) {
+      conclusion = 'Batas Aman: Cicilan minimum dan maksimum berada dalam batas aman. Cashflow perlu dikelola dengan baik dan prioritaskan dana darurat untuk menjaga stabilitas.';
+      status = 'aman';
+    } else {
+      conclusion = 'Cicilan minimum dalam batas aman, tetapi cicilan maksimum membebani. Perhatikan cashflow terutama pada saat cicilan maksimum, dan pertimbangkan untuk mengurangi pengeluaran atau menambah penghasilan pada masa floating.';
+      status = 'berat';
+    }
   } else if (minRatio > 0.4 && minRatio <= 0.5) {
-    conclusion = 'Membebani: Cicilan minimum dan maksimum mulai membebani keuangan bulanan. Cashflow terbatas dan sulit untuk menabung atau berinvestasi. Pertimbangkan untuk menambah DP, memperpanjang masa KPR, atau mengurangi pengeluaran.';
-    status = 'berat';
+    if (maxRatio <= 0.5) {
+      conclusion = 'Membebani: Cicilan minimum dan maksimum mulai membebani keuangan bulanan. Cashflow terbatas dan sulit untuk menabung atau berinvestasi. Pertimbangkan untuk menambah DP, memperpanjang masa KPR, mengurangi pengeluaran atau menambah penghasilan.';
+      status = 'berat';
+    } else {
+      conclusion = 'Cicilan minimum membebani, sementara cicilan maksimum sangat membebani. Cashflow sangat ketat, dan disarankan untuk menambah DP, memperpanjang masa KPR, mengurangi pengeluaran atau menambah penghasilan.';
+      status = 'bahaya';
+    }
   } else {
     conclusion = 'Tidak Sehat: Cicilan minimum dan maksimum berada di luar batas aman karena lebih dari 50% dari penghasilan. Cashflow hampir habis untuk cicilan, berisiko tinggi menyebabkan ketergantungan pada hutang lain.';
     status = 'bahaya';
